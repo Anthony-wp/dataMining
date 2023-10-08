@@ -2,6 +2,7 @@ package dpl.processing.job;
 
 import dpl.processing.model.AggregatedData;
 import dpl.processing.job.context.ProcessJobContext;
+import dpl.processing.model.CardHeader;
 import dpl.processing.service.AggregatedDataService;
 import dpl.processing.service.spark.IPostgresSparkDataService;
 import dpl.processing.vo.wrapper.row.SimpleRowWrapper;
@@ -23,11 +24,11 @@ import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 import static dpl.processing.constants.PostgresConstants.CUSTOMER_KEY_FIELD;
 import static dpl.processing.constants.PostgresConstants.ENGAGEMENT_GAP_SECONDS_FIELD;
 import static dpl.processing.utils.DateUtils.asDate;
+import static dpl.processing.utils.DateUtils.generateWeekTimeKeys;
 import static dpl.processing.utils.ScalaUtils.toSeq;
 import static dpl.processing.vo.ColumnsNameConstants.*;
 import static org.apache.spark.sql.functions.*;
@@ -108,7 +109,7 @@ public class DataProcessingJob {
     public final void startJob(ProcessJobContext context) {
         String sessionName = sparkDataService.getInfoSession().getName();
 
-        LocalDateTime jobDate = toJobDay(context.getJobEntryTimestamp());
+        LocalDateTime jobDate = context.getJobEntryTimestamp();
 
         log.trace("{} job: using '{}' spark session", getJobName(), sessionName);
 
@@ -120,7 +121,7 @@ public class DataProcessingJob {
                                 .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1)))
 
                         //TODO: Re-instate removal of order discount amount when done in spend bracket calcs too
-                        //.$minus(coalesce(toOrderCol(ORDER_DISCOUNT_AMOUNT), lit(0)))
+                        //.$minus(coalesce(col(ORDER_DISCOUNT_AMOUNT), lit(0)))
                 );
 
         if (log.isTraceEnabled()) {
@@ -129,16 +130,16 @@ public class DataProcessingJob {
 
         AggregatedData aggregatedData = startProcessingData(context, sessionName, jobDate, ordersDataSet);
 
-        shopifyCardWrapper.setCardHeader(generateCardHeader(jobDate, ordersDataSet, engagementDataSet, context.getOrg()));
+        generateCardData(aggregatedData, jobDate, ordersDataSet);
         dataService.saveData(aggregatedData);
 
     }
 
     private AggregatedData startProcessingData(ProcessJobContext context, String sessionName, LocalDateTime jobDate, Dataset<Row> ordersDataSet) {
-
+        return new AggregatedData();
     }
 
-    private CardHeader generateCardHeader(LocalDateTime currentDay, Dataset<Row> ordersDataSet, Dataset<Row> engagementDataSet, Org currentOrg) {
+    private void generateCardData(AggregatedData aggregatedData, LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
         Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
 
         log.trace("{} job: generating card header", getJobName());
@@ -175,51 +176,16 @@ public class DataProcessingJob {
                 .withColumn(YESTERDAY_ANG_ORDER_VALUE_FIELD, col(YESTERDAY_TOTAL_VALUE_FIELD).divide(col(YESTERDAY_ORDER_NUMBER_FIELD)))
                 .collectAsList().get(0));
 
-
-        AggregatedData cardHeaderBuilder = AggregatedData.builder()
-                .totalSales(toBigDecimal(headerData.getDouble(TOTAL_VALUE_YEAR_FIELD, 0.0)))
-                .yesterdaySales(toBigDecimal(headerData.getDouble(YESTERDAY_TOTAL_VALUE_FIELD, 0.0)))
-                .yesterdayAverageOrderValue(toBigDecimal(headerData.getDouble(YESTERDAY_ANG_ORDER_VALUE_FIELD, 0.0)))
-                .last7daysAverageSales(last7daysAverageSales)
-                .last7daysAverageOrderValue(toBigDecimal(headerData.getDouble(LAST_WEEK_ANG_ORDER_VALUE_FIELD, 0.0)))
-                .build();
-
-        Optional<DataPipelineTaskStats> lastSuccessfulTaskStats = taskService.findLatestByTypeAndState(TaskType.SPEND_BRACKET, TaskState.SUCCESS);
-
-        boolean isLess24HoursOfSuccessJob = lastSuccessfulTaskStats
-                .map(x -> x.getEndTime().after(DateUtils.asDate(LocalDateTime.now().minusDays(1))))
-                .orElse(false);
-
-        if (lastSuccessfulTaskStats.isPresent() && isLess24HoursOfSuccessJob) {
-            shopifyDataService.setCurrentSegmentData(currentOrg, cardHeaderBuilder);
-        } else {
-            setCardHeaderByCustomerDataSet(currentDay, ordersDataSet, engagementDataSet, cardHeaderBuilder);
-        }
-
-        log.trace("{} job: loaded all header data", getJobName());
-
-        return cardHeaderBuilder.build();
+        aggregatedData.setTotalSales(toBigDecimal(headerData.getDouble(TOTAL_VALUE_YEAR_FIELD, 0.0)));
+        aggregatedData.setYesterdaySales(toBigDecimal(headerData.getDouble(YESTERDAY_TOTAL_VALUE_FIELD, 0.0)));
+        aggregatedData.setYesterdayAverageOrderValue(toBigDecimal(headerData.getDouble(YESTERDAY_ANG_ORDER_VALUE_FIELD, 0.0)));
+        aggregatedData.setLast7daysAverageSales(last7daysAverageSales);
+        aggregatedData.setLast7daysAverageOrderValue(toBigDecimal(headerData.getDouble(LAST_WEEK_ANG_ORDER_VALUE_FIELD, 0.0)));
     }
-
-    private void setCardHeaderByCustomerDataSet(LocalDateTime currentDay, Dataset<Row> ordersDataSet,
-                                                Dataset<Row> engagementDataSet,
-                                                CardHeader.CardHeaderBuilder cardHeaderBuilder) {
-        SimpleRowWrapper simpleRowWrapper = getCustomerSegmentDataFromCustomerDataSet(currentDay,
-                ordersDataSet,
-                engagementDataSet);
-
-        cardHeaderBuilder
-                .last30daysActiveCustomers(simpleRowWrapper.getLong(LAST_30_DAYS_ACTIVE_CUSTOMERS, 0L))
-                .last30daysLostCustomers(simpleRowWrapper.getLong(LAST_30_DAYS_LOST_CUSTOMERS, 0L))
-                .riskOfLeavingCustomers(simpleRowWrapper.getLong(RISK_OF_LEAVING_CUSTOMERS, 0L))
-                .loyalRiskOfLeavingCustomers(simpleRowWrapper.getLong(LOYAL_RISK_OF_LEAVING_CUSTOMERS, 0L));
-    }
-
     private SimpleRowWrapper getCustomerSegmentDataFromCustomerDataSet(LocalDateTime currentDay,
-                                                                       Dataset<Row> ordersDataSet,
-                                                                       Dataset<Row> engagementDataSet) {
+                                                                       Dataset<Row> ordersDataSet) {
         return new SimpleRowWrapper(
-                createCustomerStatsDataset(currentDay, ordersDataSet, engagementDataSet)
+                createCustomerStatsDataset(currentDay, ordersDataSet)
                         .agg(
                                 countDistinct(when(col(TOTAL_VALUE_30_DAYS_FIELD).$greater(lit(0))
                                         .or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).$greater(Timestamp.valueOf(currentDay.minusDays(30)))), col(CUSTOMER_KEY_FIELD)))
@@ -235,10 +201,10 @@ public class DataProcessingJob {
                         ).collectAsList().get(0));
     }
 
-    protected Dataset<Row> createCustomerStatsDataset(LocalDateTime currentDay, Dataset<Row> ordersDataSet, Dataset<Row> engagementDataSet) {
+    protected Dataset<Row> createCustomerStatsDataset(LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
         log.trace("{} job: loading customer stats dataset", getJobName());
 
-        Column timestampColumn = toOrderCol(ORDER_LINE_ITEM_TIMESTAMP);
+        Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
 
         Dataset<Row> dates = ordersDataSet.groupBy(CUSTOMER_KEY_FIELD)
                 .agg(
@@ -255,31 +221,17 @@ public class DataProcessingJob {
             log.trace("{} job: loaded CUSTOMER data with {} rows", getJobName(), dates.count());
         }
 
-        WindowSpec sessionWindow = Window.partitionBy(ENGAGEMENT_SESSION_ID_FIELD)
-                .orderBy(col(ENGAGEMENT_EVENT_TIMESTAMP_FIELD));
-
-        //An Analysis error occurred and a rename column was added
-        //https://issues.apache.org/jira/browse/SPARK-10925
-        Dataset<Row> customerSessionGaps = engagementDataSet.select(
-                        first(col(ENGAGEMENT_GAP_SECONDS_FIELD)).over(sessionWindow).as(ENGAGEMENT_GAP_SECONDS_FIELD),
-                        col(CUSTOMER_KEY_FIELD).as(CUSTOMER_KEY_FIELD)
-                )
-                .distinct()
-                .filter(col(ENGAGEMENT_GAP_SECONDS_FIELD).isNotNull())
-                .groupBy(CUSTOMER_KEY_FIELD)
-                .agg(avg(col(ENGAGEMENT_GAP_SECONDS_FIELD)).as(ENGAGEMENT_GAP_SECONDS_FIELD));
-
 
         log.trace("{} job: Constructed ENGAGEMENT dataset", getJobName());
-        WindowSpec window = Window.partitionBy(CUSTOMER_KEY_FIELD).orderBy(toOrderCol(ORDER_LINE_ITEM_TIMESTAMP).asc_nulls_last());
+        WindowSpec window = Window.partitionBy(CUSTOMER_KEY_FIELD).orderBy(col(ORDER_LINE_ITEM_TIMESTAMP).asc_nulls_last());
 
         return ordersDataSet
-                .withColumn(FIRST_ORDER_ID_FIELD, first(toOrderCol(DataSourceSchemaAttributeTag.ORDER_ID), true).over(window))
+                .withColumn(FIRST_ORDER_ID_FIELD, first(col(ORDER_ID), true).over(window))
                 .join(dates, CUSTOMER_KEY_TO_JOIN, LEFT_JOIN)
                 .groupBy(col(CUSTOMER_KEY_FIELD))
                 .agg(
                         first(FIRST_ORDER_ID_FIELD).alias(FIRST_ORDER_ID_FIELD),
-                        countDistinct(toOrderCol(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
+                        countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
                         coalesce(sum(col(TOTAL_VALUE_FIELD)), lit(0)).as(CUSTOMER_TOTAL_VALUE_FIELD),
                         coalesce(sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusYears(1))), col(TOTAL_VALUE_FIELD))), lit(0))
                                 .as(TOTAL_VALUE_YEAR_FIELD),
@@ -291,10 +243,10 @@ public class DataProcessingJob {
                                 .as(TOTAL_VALUE_60_DAYS_FIELD),
                         coalesce(sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(30))), col(TOTAL_VALUE_FIELD))), lit(0))
                                 .as(TOTAL_VALUE_30_DAYS_FIELD),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER2_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(OLDEST_ORDER_TIMESTAMP_FIELD)), toOrderCol(ORDER_ID)))).as(ORDERS_COUNT_QUARTER1),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER3_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER2_LOWER_BOUND)), toOrderCol(ORDER_ID)))).as(ORDERS_COUNT_QUARTER2),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER4_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER3_LOWER_BOUND)), toOrderCol(ORDER_ID)))).as(ORDERS_COUNT_QUARTER3),
-                        countDistinct(when(timestampColumn.$less$eq(col(JOB_DATE_FIELD)), when(timestampColumn.$greater$eq(col(QUARTER4_LOWER_BOUND)), toOrderCol(ORDER_ID)))).as(ORDERS_COUNT_QUARTER4),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER2_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(OLDEST_ORDER_TIMESTAMP_FIELD)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER1),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER3_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER2_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER2),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER4_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER3_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER3),
+                        countDistinct(when(timestampColumn.$less$eq(col(JOB_DATE_FIELD)), when(timestampColumn.$greater$eq(col(QUARTER4_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER4),
                         first(col(OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT), true).as(OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT),
                         first(col(OLDEST_ORDER_TIMESTAMP_FIELD), true).as(OLDEST_ORDER_TIMESTAMP_FIELD),
                         first(col(JOB_DATE_FIELD), true).as(JOB_DATE_FIELD),
@@ -327,11 +279,11 @@ public class DataProcessingJob {
         // data for all weeks
         Dataset<Row> weekData = ordersDataSet.groupBy(WEEK_DATE_FIELD)
                 .agg(
-                        countDistinct(toOrderCol(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
+                        countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
                         countDistinct(CUSTOMER_KEY_FIELD).alias(CUSTOMER_NUMBER_FIELD),
-                        sum(toOrderCol(ORDER_LINE_ITEM_QTY)).alias(ITEMS_NUMBER_FIELD),
+                        sum(col(ORDER_LINE_ITEM_QTY)).alias(ITEMS_NUMBER_FIELD),
                         sum(TOTAL_VALUE_FIELD).alias(TOTAL_VALUE_FIELD),
-                        countDistinct(toOrderCol(PRODUCT_EXTERNAL_ID)).alias(DIFF_PRODUCTS_NUMBER_FIELD)
+                        countDistinct(col(PRODUCT_EXTERNAL_ID)).alias(DIFF_PRODUCTS_NUMBER_FIELD)
                 );
         // handling the case when there were no sales in some week, and it disappears from the weekData
         List<Row> weekDataList = weekData.collectAsList();
@@ -356,21 +308,6 @@ public class DataProcessingJob {
                 .withColumn(ITEMS_NUMBER_FIELD, coalesce(col(ITEMS_NUMBER_FIELD), lit(0L)))
                 .withColumn(TOTAL_VALUE_FIELD, coalesce(col(TOTAL_VALUE_FIELD), lit(0D)))
                 .withColumn(DIFF_PRODUCTS_NUMBER_FIELD, coalesce(col(DIFF_PRODUCTS_NUMBER_FIELD), lit(0L)));
-    }
-
-    private LocalDateTime toJobDay(LocalDateTime localDate) {
-        return localDate.with(getShopifyType().getDayOfWeek()).toLocalDate().atStartOfDay();
-    }
-
-    @Override
-    public boolean isNecessaryToRun(ProcessJobContext context) {
-        return context.getForceRun() || !shopifyDataService.isCardDataAvailable(asDate(toJobDay(context.getJobEntryTimestamp())), context.getConnectionId(), getShopifyType());
-    }
-
-    protected Boolean existOrders(Long connectionId) {
-        Long countOrders = dataSourceHistoryService.findRecordCountByConnectionIdAndDsType(connectionId, DataSourceType.ORDER.name());
-
-        return Optional.ofNullable(countOrders).map(count -> count > 0).orElse(false);
     }
 
     private String getJobName() {

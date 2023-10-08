@@ -9,7 +9,7 @@ import java.time.YearMonth;
 @Getter
 @AllArgsConstructor
 public class ProcessJobContext implements JobContext{
-    private final Long connectionId;
+//    private final Long connectionId;
     private final Boolean forceRun;
     private LocalDateTime jobEntryTimestamp;
 
@@ -20,6 +20,6 @@ public class ProcessJobContext implements JobContext{
 
     @Override
     public boolean isValid() {
-        return jobEntryTimestamp != null && connectionId != null;
+        return jobEntryTimestamp != null;
     }
 }

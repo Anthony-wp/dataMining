@@ -1,10 +1,10 @@
 package dpl.processing.type;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
-@AllArgsConstructor
+@NoArgsConstructor
 public enum PostgresAppTables {
     EXTERNAL_ID_ORDER_KEY_TABLE("external_id_order_key"),
     EXTERNAL_ID_CONTENT_KEY_TABLE("external_id_content_key"),
@@ -29,5 +29,9 @@ public enum PostgresAppTables {
     PRODUCT_VIEWED_HISTORY_SET_TABLE("product_viewed_history_set"),
     PRODUCT_FOLLOW_ON_PURCHASE_MATRIX_TABLE("product_follow_on_purchase_matrix");
 
-    private final String tableName;
+    private String tableName;
+
+    PostgresAppTables(String tableName) {
+        this.tableName = tableName;
+    }
 }

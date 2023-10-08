@@ -1,7 +1,7 @@
 spring.application.name: Data Generator
 
 spring.datasource:
-  url: jdbc:postgresql://localhost:5432/test_data?searchpath=basic
+  url: jdbc:postgresql://localhost:5432/shop_data?searchpath=testshop
   username: postgres
   password: 1qaz2wsXX
   driver-class-name: org.postgresql.Driver
@@ -11,6 +11,8 @@ spring:
   jpa:
     properties:
       hibernate:
+        ejb:
+          classloaders: org.springframework.instrument.classloading.InstrumentationLoadTimeWeaver
         dialect: org.hibernate.dialect.PostgreSQLDialect
     show-sql: false
     hibernate:

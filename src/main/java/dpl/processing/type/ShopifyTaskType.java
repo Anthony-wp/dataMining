@@ -2,9 +2,11 @@ package dpl.processing.type;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
 @AllArgsConstructor
+@NoArgsConstructor
 public enum ShopifyTaskType {
     BUILD_ORDERS_TASK(1),
     BUILD_CONTENTS_TASK(1),
@@ -12,5 +14,5 @@ public enum ShopifyTaskType {
     GENERATE_RESULT(1000),
     ;
 
-    private final Integer order;
+    private Integer order;
 }

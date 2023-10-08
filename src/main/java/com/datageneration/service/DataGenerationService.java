@@ -14,6 +14,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
+import javax.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
@@ -30,7 +31,7 @@ public class DataGenerationService {
     private final ProductRepository productRepository;
     private final OrderRepository orderRepository;
 
-    @EventListener(ApplicationReadyEvent.class)
+    @PostConstruct
     public void generateData() {
         // customer params
         long customerCount = 1000;
