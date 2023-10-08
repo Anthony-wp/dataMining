@@ -1,0 +1,54 @@
+spring.application.name: Data Generator
+
+spring.datasource:
+  url: jdbc:postgresql://localhost:5432/test_data?searchpath=basic
+  username: postgres
+  password: 1qaz2wsXX
+  driver-class-name: org.postgresql.Driver
+
+spring:
+  profiles.active: local
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+    hibernate:
+      ddl-auto: none
+      use-new-id-generator-mappings: true
+datasource:
+  app:
+    platform: postgres
+    driver-class-name: org.postgresql.Driver
+  job:
+    platform: postgres
+    driver-class-name: org.postgresql.Driver
+  org:
+    platform: postgres
+    driver-class-name: org.postgresql.Driver
+  demographics:
+    platform: postgres
+    driver-class-name: org.postgresql.Driver
+    jdbc-url: jdbc:postgresql://distil-postgresql.postgres.database.azure.com:5432/distil?currentSchema=distil_demographics
+    username: app_api_prod@distil-postgresql
+    password: "@tUx9k.HanQF"
+
+server.port: 8095
+
+spark:
+  postgres:
+    url: jdbc:postgresql://localhost:5432/shop_data
+    user: postgres
+    password: "1qaz2wsXX"
+    localPath: /mnt/spark
+    jars:
+      - ./jars/postgresql-42.5.1.jar
+    master: spark://127.0.0.1:7077
+    maxExecutors: 1
+    coresPerExecutor: 1
+    memory: 6g
+    port: 9042
+    servers: distil-dev-host
+    retryWait: 3
+    maxRetries: 3
+
