@@ -1,10 +1,11 @@
 spring.application.name: Data Generator
 
 spring.datasource:
-  url: jdbc:postgresql://localhost:5432/shop_data?searchpath=testshop
+  url: jdbc:postgresql://localhost:5432/shop_data
   username: postgres
   password: 1qaz2wsXX
   driver-class-name: org.postgresql.Driver
+
 
 spring:
   profiles.active: local
@@ -17,23 +18,11 @@ spring:
     show-sql: false
     hibernate:
       ddl-auto: none
-      use-new-id-generator-mappings: true
+    generate-ddl: true
 datasource:
   app:
     platform: postgres
     driver-class-name: org.postgresql.Driver
-  job:
-    platform: postgres
-    driver-class-name: org.postgresql.Driver
-  org:
-    platform: postgres
-    driver-class-name: org.postgresql.Driver
-  demographics:
-    platform: postgres
-    driver-class-name: org.postgresql.Driver
-    jdbc-url: jdbc:postgresql://distil-postgresql.postgres.database.azure.com:5432/distil?currentSchema=distil_demographics
-    username: app_api_prod@distil-postgresql
-    password: "@tUx9k.HanQF"
 
 server.port: 8095
 
