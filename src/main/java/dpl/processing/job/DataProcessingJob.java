@@ -202,7 +202,7 @@ public class DataProcessingJob {
     }
 
     protected Dataset<Row> createCustomerStatsDataset(LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
-        log.trace("{} job: loading customer stats dataset", getJobName());
+        log.trace("{} job: loading user stats dataset", getJobName());
 
         Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
 

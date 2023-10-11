@@ -33,7 +33,7 @@ public class DataGenerationService {
 
     @PostConstruct
     public void generateData() {
-        // customer params
+        // user params
         long customerCount = 1000;
 
         // product params
@@ -57,7 +57,7 @@ public class DataGenerationService {
         List<Order> orders = orderRepository.saveAll(generateOrders(orderCount, customers, products, maxOrderLines,
                 maxQuantity, lowerOrderTimeBound, upperOrderTimeBound));
 
-        log.info("Created {} customer, {} products, {} orders", customers.size(), products.size(), orders.size());
+        log.info("Created {} users, {} products, {} orders", customers.size(), products.size(), orders.size());
     }
 
     private List<User> generateCustomers(long amount) {
@@ -103,13 +103,13 @@ public class DataGenerationService {
                 }).collect(Collectors.toList());
     }
 
-    private List<Order> generateOrders(long amount, List<User> customers, List<Product> products,
+    private List<Order> generateOrders(long amount, List<User> users, List<Product> products,
                                        int maxLines, int maxQty, Date minTimestamp, Date maxTimestamp) {
         long startValue = System.currentTimeMillis();
 
         return LongStream.range(startValue, startValue + amount)
                 .mapToObj(id -> {
-                    User customer = randomElement(customers);
+                    User user = randomElement(users);
                     String orderId = UUID.randomUUID().toString();
 
                     return randomElements(products, r.nextInt(maxLines) + 1L)
@@ -120,12 +120,12 @@ public class DataGenerationService {
                                 return new Order(
                                         UUID.randomUUID().toString(),
                                         orderId,
-                                        customer.getId(),
+                                        user.getId(),
                                         product.getId(),
                                         r.nextInt(maxQty) + 1L,
                                         timestamp,
-                                        customer.getEmail(),
-                                        customer.getMobileNumber(),
+                                        user.getEmail(),
+                                        user.getMobileNumber(),
                                         "Stripe",
                                         "GBP",
                                         Math.random() > 0.05 ? "PAID" : "RETURNED",
