@@ -1,14 +1,15 @@
-# Please note we are using Docker Compose version 3
 version: '3'
 services:
   db:
     image: postgres:11
     restart: always
     container_name: pg11
+    networks:
+      - dc1ring
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: shop_db
+      POSTGRES_DB: shop_data
       POSTGRES_PASSWORD: 1qaz2wsXX
     volumes:
       - ./postgres:/var/lib/postgresql/data
@@ -17,35 +18,33 @@ services:
     image: redis
     container_name: redis
     restart: always
+    networks:
+      - dc1ring
     volumes:
       - ./redis:/usr/local/etc/redis
     ports:
       - "6379:6379"
 
   spark-master:
-    image: bde2020/spark-master:2.3.1-hadoop2.7
+    image: bde2020/spark-master:3.1.2-hadoop3.2
     container_name: spark-master
-    network_mode: host
-    restart: always
     ports:
-      - "8080:8080"
       - "7077:7077"
+      - "8080:8080"
     environment:
       - INIT_DAEMON_STEP=setup_spark
-      - "constraint:node==softkit_maser_spark"
+    networks:
+      - dc1ring  # Ensure it's part of the same network
 
-  spark-worker-1:
-    image: bde2020/spark-worker:2.3.1-hadoop2.7
-    container_name: spark-worker-1
-    network_mode: host
-    restart: always
+  spark-worker:
+    image: bde2020/spark-worker:3.1.2-hadoop3.2
+    container_name: spark-worker
+    environment:
+      - "SPARK_MASTER=spark://spark-master:7077"  # Adjust environment variables as needed
     depends_on:
       - spark-master
-    ports:
-      - "8081:8081"
-    environment:
-      - "SPARK_MASTER=spark://softkit1:7077"
-      - "constraint:node==softkit_maser_spark"
+    networks:
+      - dc1ring  # Ensure it's part of the same network
 
 volumes:
   data01:
@@ -53,8 +52,7 @@ volumes:
 
 networks:
   dc1ring:
+    name: web
   data:
   elastic:
     driver: bridge
-
-

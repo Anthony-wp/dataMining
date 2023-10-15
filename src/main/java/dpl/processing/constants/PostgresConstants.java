@@ -5,11 +5,9 @@ import lombok.experimental.UtilityClass;
 @UtilityClass
 public class PostgresConstants {
     public static final String SHOP_GLOBAL_KEYSPACE = "testshop";
-    public static final String DISTIL_ORG_KEYSPACE_PREFIX = "distil_org_";
     public static final String KEYSPACE = "keyspace";
     public static final String TABLE = "dbtable";
 
-    public static final String TENANT_CODE_FIELD = "tc";
     public static final String CUSTOMER_KEY_FIELD = "customer_key";
     public static final String CUSTOMER_EXTERNAL_ID_FIELD = "external_id";
 
@@ -21,8 +19,4 @@ public class PostgresConstants {
     public static final String ENGAGEMENT_GAP_SECONDS_FIELD = "browse_gap_seconds";
     public static final String ENGAGEMENT_ORDER_ID_FIELD = "order_orderid";
     public static final String ENGAGEMENT_ANONYMOUS_USER_ID_FIELD = "context_anonymoususerid";
-
-    public static String buildOrgKeyspace(String tenant) {
-        return DISTIL_ORG_KEYSPACE_PREFIX + tenant;
-    }
 }

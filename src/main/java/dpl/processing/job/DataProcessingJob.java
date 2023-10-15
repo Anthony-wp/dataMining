@@ -2,7 +2,6 @@ package dpl.processing.job;
 
 import dpl.processing.model.AggregatedData;
 import dpl.processing.job.context.ProcessJobContext;
-import dpl.processing.model.CardHeader;
 import dpl.processing.service.AggregatedDataService;
 import dpl.processing.service.spark.IPostgresSparkDataService;
 import dpl.processing.vo.wrapper.row.SimpleRowWrapper;
@@ -119,9 +118,6 @@ public class DataProcessingJob {
                 .withColumn(WEEK_DATE_FIELD, date_trunc("WEEK", col(ORDER_LINE_ITEM_TIMESTAMP)))
                 .withColumn(TOTAL_VALUE_FIELD, coalesce(col(LINE_VALUE_INCLUDING_TAX), col(LINE_VALUE_EXCLUDING_TAX), lit(0))
                                 .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1)))
-
-                        //TODO: Re-instate removal of order discount amount when done in spend bracket calcs too
-                        //.$minus(coalesce(col(ORDER_DISCOUNT_AMOUNT), lit(0)))
                 );
 
         if (log.isTraceEnabled()) {
@@ -136,16 +132,13 @@ public class DataProcessingJob {
     }
 
     private AggregatedData startProcessingData(ProcessJobContext context, String sessionName, LocalDateTime jobDate, Dataset<Row> ordersDataSet) {
-        return new AggregatedData();
-    }
-
-    private void generateCardData(AggregatedData aggregatedData, LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
+        AggregatedData aggregatedData = new AggregatedData();
         Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
 
         log.trace("{} job: generating card header", getJobName());
 
         Dataset<Row> avgByDayOfWeekData = ordersDataSet
-                .filter(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(7))))
+                .filter(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))))
                 .withColumn(DAY_DATE_FIELD, date_trunc("DAY", col(ORDER_LINE_ITEM_TIMESTAMP)))
                 .groupBy(DAY_DATE_FIELD)
                 .agg(
@@ -158,18 +151,18 @@ public class DataProcessingJob {
         SimpleRowWrapper headerData = new SimpleRowWrapper(ordersDataSet.agg(
 
                         sum(col(TOTAL_VALUE_FIELD)).as(TOTAL_VALUE_FIELD),
-                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusYears(1))), col(TOTAL_VALUE_FIELD)))
+                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusYears(1))), col(TOTAL_VALUE_FIELD)))
                                 .as(TOTAL_VALUE_YEAR_FIELD),
-                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(7))), col(TOTAL_VALUE_FIELD)))
+                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))), col(TOTAL_VALUE_FIELD)))
                                 .as(TOTAL_VALUE_WEEK_FIELD),
-                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(1))), col(TOTAL_VALUE_FIELD)))
+                        sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(1))), col(TOTAL_VALUE_FIELD)))
                                 .as(YESTERDAY_TOTAL_VALUE_FIELD),
 
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusYears(1))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusYears(1))), col(ORDER_ID)))
                                 .alias(ORDER_NUMBER_FIELD),
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(7))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))), col(ORDER_ID)))
                                 .alias(LAST_WEEK_ORDER_NUMBER_FIELD),
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(1))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(1))), col(ORDER_ID)))
                                 .alias(YESTERDAY_ORDER_NUMBER_FIELD)
                 ).withColumn(AVG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_FIELD).divide(col(ORDER_NUMBER_FIELD)))
                 .withColumn(LAST_WEEK_ANG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_WEEK_FIELD).divide(col(LAST_WEEK_ORDER_NUMBER_FIELD)))
@@ -181,7 +174,15 @@ public class DataProcessingJob {
         aggregatedData.setYesterdayAverageOrderValue(toBigDecimal(headerData.getDouble(YESTERDAY_ANG_ORDER_VALUE_FIELD, 0.0)));
         aggregatedData.setLast7daysAverageSales(last7daysAverageSales);
         aggregatedData.setLast7daysAverageOrderValue(toBigDecimal(headerData.getDouble(LAST_WEEK_ANG_ORDER_VALUE_FIELD, 0.0)));
+
+
+        return aggregatedData;
     }
+
+    private void generateCardData(AggregatedData aggregatedData, LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
+
+    }
+
     private SimpleRowWrapper getCustomerSegmentDataFromCustomerDataSet(LocalDateTime currentDay,
                                                                        Dataset<Row> ordersDataSet) {
         return new SimpleRowWrapper(

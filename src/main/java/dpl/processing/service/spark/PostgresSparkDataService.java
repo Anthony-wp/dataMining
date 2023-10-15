@@ -52,12 +52,11 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         return getSparkSession(sparkSession)
                 .read()
                 .format(getFormat())
-                .option("url", "jdbc:postgresql://localhost:5432/shop_data")
+                .option("url", "jdbc:postgresql://172.30.0.4:5432/shop_data")
                 .option("user", "postgres")
                 .option("password", "1qaz2wsXX")
                 .option("driver", "org.postgresql.Driver")
-                .option(KEYSPACE, SHOP_GLOBAL_KEYSPACE)
-                .option(TABLE, table)
+                .option(TABLE, String.format("%s.%s", SHOP_GLOBAL_KEYSPACE, table))
                 .load();
     }
 
@@ -100,7 +99,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
     @Override
     public Dataset<Row> loadProductDataForOrg(String sparkSession, JobContext context) {
 
-        return loadBaseTableForOrg(sparkSession, "products", context);
+        return loadBaseTableForOrg(sparkSession, "product", context);
     }
 
     @Override
@@ -126,7 +125,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
     public Dataset<Row> loadPurchaseDataForOrg(String sparkSession, JobContext context) {
         log.info("Count of the spark session {}", getSparkSessions().size());
 
-        Dataset<Row> orderData = loadBaseTableForOrg(sparkSession, "orders", context);
+        Dataset<Row> orderData = loadBaseTableForOrg(sparkSession, "order", context);
         Dataset<Row> customerKeyExternalIds = table(sparkSession, buildTableName(context, loadToViewCustomerExternalIds(sparkSession, context)))
                 .select(CUSTOMER_EXTERNAL_ID_FIELD, CUSTOMER_KEY_FIELD);
 

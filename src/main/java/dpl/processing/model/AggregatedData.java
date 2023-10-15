@@ -1,12 +1,6 @@
 package dpl.processing.model;
 
-import com.vladmihalcea.hibernate.type.basic.PostgreSQLEnumType;
-import com.vladmihalcea.hibernate.type.json.JsonBinaryType;
 import lombok.*;
-import org.hibernate.annotations.Type;
-import org.hibernate.annotations.TypeDef;
-import org.hibernate.annotations.TypeDefs;
-
 
 import javax.persistence.*;
 import java.math.BigDecimal;
@@ -21,12 +15,6 @@ import java.util.Date;
 @Inheritance
 @Table(schema = "testshop", name = "aggregated_data")
 @Builder
-@TypeDefs(
-        {
-                @TypeDef(name = "jsonb", typeClass = JsonBinaryType.class),
-                @TypeDef(name = "pgsql_enum", typeClass = PostgreSQLEnumType.class)
-        }
-)
 public class AggregatedData {
 
     @Id
@@ -68,10 +56,6 @@ public class AggregatedData {
     private Long riskOfLeavingCustomers;
 
     private Long loyalRiskOfLeavingCustomers;
-
-//    @Type(type = "jsonb")
-    @Column(name = "card_header", columnDefinition = "jsonb")
-    private CardHeader cardHeader;
 
     public BigDecimal getLoyalRiskOfLeavingCustomersPercentage() {
         if (loyalRiskOfLeavingCustomers == null || riskOfLeavingCustomers == null || riskOfLeavingCustomers == 0L) {

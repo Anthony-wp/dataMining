@@ -1,5 +1,6 @@
 spring.application.name: Data Generator
-
+logging.level.org.springframework: ERROR
+logging.level.org.apache.parquet.hadoop: WARN
 spring.datasource:
   url: jdbc:postgresql://localhost:5432/shop_data
   username: postgres
@@ -28,18 +29,18 @@ server.port: 8095
 
 spark:
   postgres:
-    url: jdbc:postgresql://localhost:5432/shop_data
+    url: jdbc:postgresql://172.30.0.4:5432/shop_data
     user: postgres
     password: "1qaz2wsXX"
     localPath: /mnt/spark
     jars:
-      - ./jars/postgresql-42.5.1.jar
-    master: spark://127.0.0.1:7077
+      - ./jars/postgresql-42.6.0.jar
+    master: spark://localhost:7077
     maxExecutors: 1
     coresPerExecutor: 1
     memory: 6g
     port: 9042
-    servers: distil-dev-host
+    servers: dpl-dev-host
     retryWait: 3
     maxRetries: 3
 
