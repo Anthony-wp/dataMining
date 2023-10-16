@@ -52,7 +52,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         return getSparkSession(sparkSession)
                 .read()
                 .format(getFormat())
-                .option("url", "jdbc:postgresql://172.30.0.4:5432/shop_data")
+                .option("url", "jdbc:postgresql://172.30.0.2:5432/shop_data")
                 .option("user", "postgres")
                 .option("password", "1qaz2wsXX")
                 .option("driver", "org.postgresql.Driver")
@@ -98,8 +98,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
 
     @Override
     public Dataset<Row> loadProductDataForOrg(String sparkSession, JobContext context) {
-
-        return loadBaseTableForOrg(sparkSession, "product", context);
+        return loadBaseTableForOrg(sparkSession, PRODUCT_TABLE.getTableName(), context);
     }
 
     @Override
@@ -126,21 +125,16 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         log.info("Count of the spark session {}", getSparkSessions().size());
 
         Dataset<Row> orderData = loadBaseTableForOrg(sparkSession, "order", context);
-        Dataset<Row> customerKeyExternalIds = table(sparkSession, buildTableName(context, loadToViewCustomerExternalIds(sparkSession, context)))
-                .select(CUSTOMER_EXTERNAL_ID_FIELD, CUSTOMER_KEY_FIELD);
+        Dataset<Row> customerKeyExternalIds = table(sparkSession, buildTableName(context, loadUserData(sparkSession, context)))
+                .select(CUSTOMER_ID_FIELD, ID_FIELD);
 
-        return orderData.join(customerKeyExternalIds, orderData.col("customer_id")
-                .equalTo(customerKeyExternalIds.col(CUSTOMER_EXTERNAL_ID_FIELD)));
+        return orderData.join(customerKeyExternalIds, orderData.col(CUSTOMER_ID_FIELD)
+                .equalTo(customerKeyExternalIds.col(CUSTOMER_ID_FIELD)));
     }
 
     @Override
-    public String loadToViewCustomerExternalIds(String sparkSession, JobContext context) {
-        return loadBaseTableToViewForOrg(sparkSession, EXTERNAL_ID_CUSTOMER_KEY_TABLE.getTableName(), context);
-    }
-
-    @Override
-    public String loadToViewEmailIds(String sparkSession, JobContext context) {
-        return loadBaseTableToViewForOrg(sparkSession, EMAIL_ADDRESS_CUSTOMER_KEY_TABLE.getTableName(), context);
+    public String loadUserData(String sparkSession, JobContext context) {
+        return loadBaseTableToViewForOrg(sparkSession, USER_TABLE.getTableName(), context);
     }
 
     @Override
@@ -152,13 +146,8 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
     }
 
     @Override
-    public String loadToViewOrderIds(String sparkSession, JobContext context) {
-        return loadBaseTableToViewForOrg(sparkSession, EXTERNAL_ID_ORDER_KEY_TABLE.getTableName(), context);
-    }
-
-    @Override
-    public String loadToViewProductIds(String sparkSession, JobContext context) {
-        return loadBaseTableToViewForOrg(sparkSession, EXTERNAL_ID_PRODUCT_KEY_TABLE.getTableName(), context);
+    public String loadOrderData(String sparkSession, JobContext context) {
+        return loadBaseTableToViewForOrg(sparkSession, ORDER_TABLE.getTableName(), context);
     }
 
     private String buildTableName(JobContext context, String table) {

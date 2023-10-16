@@ -6,8 +6,6 @@ import dpl.processing.vo.wrapper.session.SparkSessionWrapper;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 
-import java.time.LocalDateTime;
-
 public interface IPostgresSparkDataService extends ISparkService<SparkSessionWrapper> {
     Dataset<Row> loadBaseTable(String sparkSession, String table);
 
@@ -27,11 +25,8 @@ public interface IPostgresSparkDataService extends ISparkService<SparkSessionWra
 
     Dataset<Row> loadProductDataForOrg(String sparkSession, JobContext context);
 
-    String loadToViewCustomerExternalIds(String sparkSession, JobContext context);
+    String loadUserData(String sparkSession, JobContext context);
 
-    String loadToViewEmailIds(String sparkSession, JobContext context);
+    String loadOrderData(String sparkSession, JobContext context);
 
-    String loadToViewOrderIds(String sparkSession, JobContext context);
-
-    String loadToViewProductIds(String sparkSession, JobContext context);
 }

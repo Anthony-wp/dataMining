@@ -24,9 +24,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static dpl.processing.constants.PostgresConstants.CUSTOMER_KEY_FIELD;
+import static dpl.processing.constants.PostgresConstants.ID_FIELD;
 import static dpl.processing.constants.PostgresConstants.ENGAGEMENT_GAP_SECONDS_FIELD;
-import static dpl.processing.utils.DateUtils.asDate;
 import static dpl.processing.utils.DateUtils.generateWeekTimeKeys;
 import static dpl.processing.utils.ScalaUtils.toSeq;
 import static dpl.processing.vo.ColumnsNameConstants.*;
@@ -88,7 +87,7 @@ public class DataProcessingJob {
     public static final String VALUE_FIELD = "value";
 
     protected static final String LEFT_JOIN = "left";
-    protected static final Seq<String> CUSTOMER_KEY_TO_JOIN = toSeq(Collections.singletonList(CUSTOMER_KEY_FIELD));
+    protected static final Seq<String> CUSTOMER_KEY_TO_JOIN = toSeq(Collections.singletonList(ID_FIELD));
     public static final List<String> ORDER_PAID_STATUSES = Arrays.asList("PAID", "PARTIALLY_PAID", "PARTIALLY_REFUNDED");
 
 
@@ -189,15 +188,15 @@ public class DataProcessingJob {
                 createCustomerStatsDataset(currentDay, ordersDataSet)
                         .agg(
                                 countDistinct(when(col(TOTAL_VALUE_30_DAYS_FIELD).$greater(lit(0))
-                                        .or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).$greater(Timestamp.valueOf(currentDay.minusDays(30)))), col(CUSTOMER_KEY_FIELD)))
+                                        .or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).$greater(Timestamp.valueOf(currentDay.minusDays(30)))), col(ID_FIELD)))
                                         .alias(LAST_30_DAYS_ACTIVE_CUSTOMERS),
                                 countDistinct(when(col(TOTAL_VALUE_30_DAYS_FIELD).equalTo(lit(0))
                                         .and(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).isNull().or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD)
-                                                .$less(Timestamp.valueOf(currentDay.minusDays(30))))), col(CUSTOMER_KEY_FIELD)))
+                                                .$less(Timestamp.valueOf(currentDay.minusDays(30))))), col(ID_FIELD)))
                                         .alias(LAST_30_DAYS_LOST_CUSTOMERS),
-                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)), col(CUSTOMER_KEY_FIELD)))
+                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)), col(ID_FIELD)))
                                         .alias(RISK_OF_LEAVING_CUSTOMERS),
-                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)).and(col(IS_LOYAL_FIELD).equalTo(lit(true))), col(CUSTOMER_KEY_FIELD)))
+                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)).and(col(IS_LOYAL_FIELD).equalTo(lit(true))), col(ID_FIELD)))
                                         .alias(LOYAL_RISK_OF_LEAVING_CUSTOMERS)
                         ).collectAsList().get(0));
     }
@@ -207,7 +206,7 @@ public class DataProcessingJob {
 
         Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
 
-        Dataset<Row> dates = ordersDataSet.groupBy(CUSTOMER_KEY_FIELD)
+        Dataset<Row> dates = ordersDataSet.groupBy(ID_FIELD)
                 .agg(
                         min(timestampColumn).as(OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT),
                         when(min(timestampColumn).gt(Timestamp.valueOf(currentDay.minusYears(5))), min(timestampColumn))
@@ -224,12 +223,12 @@ public class DataProcessingJob {
 
 
         log.trace("{} job: Constructed ENGAGEMENT dataset", getJobName());
-        WindowSpec window = Window.partitionBy(CUSTOMER_KEY_FIELD).orderBy(col(ORDER_LINE_ITEM_TIMESTAMP).asc_nulls_last());
+        WindowSpec window = Window.partitionBy(ID_FIELD).orderBy(col(ORDER_LINE_ITEM_TIMESTAMP).asc_nulls_last());
 
         return ordersDataSet
                 .withColumn(FIRST_ORDER_ID_FIELD, first(col(ORDER_ID), true).over(window))
                 .join(dates, CUSTOMER_KEY_TO_JOIN, LEFT_JOIN)
-                .groupBy(col(CUSTOMER_KEY_FIELD))
+                .groupBy(col(ID_FIELD))
                 .agg(
                         first(FIRST_ORDER_ID_FIELD).alias(FIRST_ORDER_ID_FIELD),
                         countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
@@ -281,7 +280,7 @@ public class DataProcessingJob {
         Dataset<Row> weekData = ordersDataSet.groupBy(WEEK_DATE_FIELD)
                 .agg(
                         countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
-                        countDistinct(CUSTOMER_KEY_FIELD).alias(CUSTOMER_NUMBER_FIELD),
+                        countDistinct(ID_FIELD).alias(CUSTOMER_NUMBER_FIELD),
                         sum(col(ORDER_LINE_ITEM_QTY)).alias(ITEMS_NUMBER_FIELD),
                         sum(TOTAL_VALUE_FIELD).alias(TOTAL_VALUE_FIELD),
                         countDistinct(col(PRODUCT_EXTERNAL_ID)).alias(DIFF_PRODUCTS_NUMBER_FIELD)
