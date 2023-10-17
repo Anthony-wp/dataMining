@@ -47,6 +47,8 @@ public interface RowWrapper<S> {
 
     Double getDouble(S field, Double defaultValue);
 
+    Number getDecimal(S field, Double defaultValue);
+
     Float getFloat(S field, Float defaultValue);
 
     Date getDate(S field, Date defaultValue);

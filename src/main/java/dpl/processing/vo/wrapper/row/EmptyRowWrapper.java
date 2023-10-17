@@ -18,6 +18,11 @@ public class EmptyRowWrapper implements RowWrapper<String> {
     }
 
     @Override
+    public Number getDecimal(String field, Double defaultValue) {
+        return defaultValue;
+    }
+
+    @Override
     public Float getFloat(String field, Float defaultValue) {
         return defaultValue;
     }

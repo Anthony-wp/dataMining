@@ -18,8 +18,7 @@ import java.util.Date;
 public class AggregatedData {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "shopify_card_generator")
-    @SequenceGenerator(name = "shopify_card_generator", sequenceName = "distil_org_xx.shopify_card_seq", allocationSize = 1)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id", updatable = false, nullable = false)
     private Long id;
 
@@ -65,5 +64,4 @@ public class AggregatedData {
         return BigDecimal.valueOf(loyalRiskOfLeavingCustomers * 100.0 / riskOfLeavingCustomers)
                 .setScale(0, RoundingMode.HALF_UP);
     }
-
 }

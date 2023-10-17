@@ -14,11 +14,6 @@ public class ProcessJobContext implements JobContext{
     private LocalDateTime jobEntryTimestamp;
 
     @Override
-    public LocalDateTime getJobEntryTimestamp() {
-        return null;
-    }
-
-    @Override
     public boolean isValid() {
         return jobEntryTimestamp != null;
     }

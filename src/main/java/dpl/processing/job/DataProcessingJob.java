@@ -12,6 +12,7 @@ import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.expressions.Window;
 import org.apache.spark.sql.expressions.WindowSpec;
+import org.apache.spark.sql.types.DataTypes;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import scala.collection.Seq;
@@ -24,11 +25,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static dpl.processing.constants.PostgresConstants.ID_FIELD;
-import static dpl.processing.constants.PostgresConstants.ENGAGEMENT_GAP_SECONDS_FIELD;
+import static dpl.processing.constants.PostgresConstants.*;
 import static dpl.processing.utils.DateUtils.generateWeekTimeKeys;
 import static dpl.processing.utils.ScalaUtils.toSeq;
-import static dpl.processing.vo.ColumnsNameConstants.*;
 import static org.apache.spark.sql.functions.*;
 
 @Slf4j
@@ -39,7 +38,7 @@ public class DataProcessingJob {
 
     protected static final String OLDEST_ORDER_TIMESTAMP_FIELD = "oldest_order_timestamp_5y_cut";
     protected static final String OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT = "oldest_order_timestamp";
-    protected static final String FIRST_ORDER_ID_FIELD = "first_order_id";
+    protected static final String FIRST_ID_FIELD_FIELD = "first_ID_FIELD";
     protected static final String JOB_DATE_FIELD = "job_date";
     protected static final String TOTAL_VALUE_FIELD = "total_value";
     protected static final String CUSTOMER_TOTAL_VALUE_FIELD = "customer_total_value";
@@ -112,11 +111,11 @@ public class DataProcessingJob {
         log.trace("{} job: using '{}' spark session", getJobName(), sessionName);
 
         Dataset<Row> ordersDataSet = sparkDataService.loadPurchaseDataForOrg(sessionName, context)
-                .where(col(ORDER_LINE_ITEM_TIMESTAMP).lt(Timestamp.valueOf(jobDate))
+                .where(col(ORDER_TIMESTAMP).lt(Timestamp.valueOf(jobDate))
                         .and(upper(col(ORDER_PAYMENT_STATUS)).isin(ORDER_PAID_STATUSES.toArray())))
-                .withColumn(WEEK_DATE_FIELD, date_trunc("WEEK", col(ORDER_LINE_ITEM_TIMESTAMP)))
+                .withColumn(WEEK_DATE_FIELD, date_trunc("WEEK", col(ORDER_TIMESTAMP)))
                 .withColumn(TOTAL_VALUE_FIELD, coalesce(col(LINE_VALUE_INCLUDING_TAX), col(LINE_VALUE_EXCLUDING_TAX), lit(0))
-                                .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1)))
+                                .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1))).cast(DataTypes.DoubleType)
                 );
 
         if (log.isTraceEnabled()) {
@@ -125,23 +124,21 @@ public class DataProcessingJob {
 
         AggregatedData aggregatedData = startProcessingData(context, sessionName, jobDate, ordersDataSet);
 
-        generateCardData(aggregatedData, jobDate, ordersDataSet);
         dataService.saveData(aggregatedData);
-
     }
 
     private AggregatedData startProcessingData(ProcessJobContext context, String sessionName, LocalDateTime jobDate, Dataset<Row> ordersDataSet) {
         AggregatedData aggregatedData = new AggregatedData();
-        Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
+        Column timestampColumn = col(ORDER_TIMESTAMP);
 
         log.trace("{} job: generating card header", getJobName());
 
         Dataset<Row> avgByDayOfWeekData = ordersDataSet
                 .filter(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))))
-                .withColumn(DAY_DATE_FIELD, date_trunc("DAY", col(ORDER_LINE_ITEM_TIMESTAMP)))
+                .withColumn(DAY_DATE_FIELD, date_trunc("DAY", col(ORDER_TIMESTAMP)))
                 .groupBy(DAY_DATE_FIELD)
                 .agg(
-                        sum(TOTAL_VALUE_FIELD).as(AVG_BY_DAY_WEEK_FIELD)
+                        sum(TOTAL_VALUE_FIELD).cast(DataTypes.DoubleType).as(AVG_BY_DAY_WEEK_FIELD)
                 )
                 .select(avg(col(AVG_BY_DAY_WEEK_FIELD)).as(AVG_BY_DAY_WEEK_FIELD));
 
@@ -157,15 +154,15 @@ public class DataProcessingJob {
                         sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(1))), col(TOTAL_VALUE_FIELD)))
                                 .as(YESTERDAY_TOTAL_VALUE_FIELD),
 
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusYears(1))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusYears(1))), col(ORDER_ID_FIELD)))
                                 .alias(ORDER_NUMBER_FIELD),
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))), col(ORDER_ID_FIELD)))
                                 .alias(LAST_WEEK_ORDER_NUMBER_FIELD),
-                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(1))), col(ORDER_ID)))
+                        countDistinct(when(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(1))), col(ORDER_ID_FIELD)))
                                 .alias(YESTERDAY_ORDER_NUMBER_FIELD)
-                ).withColumn(AVG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_FIELD).divide(col(ORDER_NUMBER_FIELD)))
-                .withColumn(LAST_WEEK_ANG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_WEEK_FIELD).divide(col(LAST_WEEK_ORDER_NUMBER_FIELD)))
-                .withColumn(YESTERDAY_ANG_ORDER_VALUE_FIELD, col(YESTERDAY_TOTAL_VALUE_FIELD).divide(col(YESTERDAY_ORDER_NUMBER_FIELD)))
+                ).withColumn(AVG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_FIELD).divide(col(ORDER_NUMBER_FIELD)).cast(DataTypes.DoubleType))
+                .withColumn(LAST_WEEK_ANG_ORDER_VALUE_FIELD, col(TOTAL_VALUE_WEEK_FIELD).divide(col(LAST_WEEK_ORDER_NUMBER_FIELD)).cast(DataTypes.DoubleType))
+                .withColumn(YESTERDAY_ANG_ORDER_VALUE_FIELD, col(YESTERDAY_TOTAL_VALUE_FIELD).divide(col(YESTERDAY_ORDER_NUMBER_FIELD)).cast(DataTypes.DoubleType))
                 .collectAsList().get(0));
 
         aggregatedData.setTotalSales(toBigDecimal(headerData.getDouble(TOTAL_VALUE_YEAR_FIELD, 0.0)));
@@ -178,33 +175,10 @@ public class DataProcessingJob {
         return aggregatedData;
     }
 
-    private void generateCardData(AggregatedData aggregatedData, LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
-
-    }
-
-    private SimpleRowWrapper getCustomerSegmentDataFromCustomerDataSet(LocalDateTime currentDay,
-                                                                       Dataset<Row> ordersDataSet) {
-        return new SimpleRowWrapper(
-                createCustomerStatsDataset(currentDay, ordersDataSet)
-                        .agg(
-                                countDistinct(when(col(TOTAL_VALUE_30_DAYS_FIELD).$greater(lit(0))
-                                        .or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).$greater(Timestamp.valueOf(currentDay.minusDays(30)))), col(ID_FIELD)))
-                                        .alias(LAST_30_DAYS_ACTIVE_CUSTOMERS),
-                                countDistinct(when(col(TOTAL_VALUE_30_DAYS_FIELD).equalTo(lit(0))
-                                        .and(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD).isNull().or(col(ENGAGEMENT_LAST_TIMESTAMP_FIELD)
-                                                .$less(Timestamp.valueOf(currentDay.minusDays(30))))), col(ID_FIELD)))
-                                        .alias(LAST_30_DAYS_LOST_CUSTOMERS),
-                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)), col(ID_FIELD)))
-                                        .alias(RISK_OF_LEAVING_CUSTOMERS),
-                                countDistinct(when(col(IS_AT_RISK_FIELD).equalTo(lit(true)).and(col(IS_LOYAL_FIELD).equalTo(lit(true))), col(ID_FIELD)))
-                                        .alias(LOYAL_RISK_OF_LEAVING_CUSTOMERS)
-                        ).collectAsList().get(0));
-    }
-
     protected Dataset<Row> createCustomerStatsDataset(LocalDateTime currentDay, Dataset<Row> ordersDataSet) {
         log.trace("{} job: loading user stats dataset", getJobName());
 
-        Column timestampColumn = col(ORDER_LINE_ITEM_TIMESTAMP);
+        Column timestampColumn = col(ORDER_TIMESTAMP);
 
         Dataset<Row> dates = ordersDataSet.groupBy(ID_FIELD)
                 .agg(
@@ -223,15 +197,15 @@ public class DataProcessingJob {
 
 
         log.trace("{} job: Constructed ENGAGEMENT dataset", getJobName());
-        WindowSpec window = Window.partitionBy(ID_FIELD).orderBy(col(ORDER_LINE_ITEM_TIMESTAMP).asc_nulls_last());
+        WindowSpec window = Window.partitionBy(ID_FIELD).orderBy(col(ORDER_TIMESTAMP).asc_nulls_last());
 
         return ordersDataSet
-                .withColumn(FIRST_ORDER_ID_FIELD, first(col(ORDER_ID), true).over(window))
+                .withColumn(FIRST_ID_FIELD_FIELD, first(col(ID_FIELD), true).over(window))
                 .join(dates, CUSTOMER_KEY_TO_JOIN, LEFT_JOIN)
                 .groupBy(col(ID_FIELD))
                 .agg(
-                        first(FIRST_ORDER_ID_FIELD).alias(FIRST_ORDER_ID_FIELD),
-                        countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
+                        first(FIRST_ID_FIELD_FIELD).alias(FIRST_ID_FIELD_FIELD),
+                        countDistinct(col(ID_FIELD)).alias(ORDER_NUMBER_FIELD),
                         coalesce(sum(col(TOTAL_VALUE_FIELD)), lit(0)).as(CUSTOMER_TOTAL_VALUE_FIELD),
                         coalesce(sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusYears(1))), col(TOTAL_VALUE_FIELD))), lit(0))
                                 .as(TOTAL_VALUE_YEAR_FIELD),
@@ -243,10 +217,10 @@ public class DataProcessingJob {
                                 .as(TOTAL_VALUE_60_DAYS_FIELD),
                         coalesce(sum(when(timestampColumn.$greater$eq(Timestamp.valueOf(currentDay.minusDays(30))), col(TOTAL_VALUE_FIELD))), lit(0))
                                 .as(TOTAL_VALUE_30_DAYS_FIELD),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER2_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(OLDEST_ORDER_TIMESTAMP_FIELD)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER1),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER3_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER2_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER2),
-                        countDistinct(when(timestampColumn.lt(col(QUARTER4_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER3_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER3),
-                        countDistinct(when(timestampColumn.$less$eq(col(JOB_DATE_FIELD)), when(timestampColumn.$greater$eq(col(QUARTER4_LOWER_BOUND)), col(ORDER_ID)))).as(ORDERS_COUNT_QUARTER4),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER2_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(OLDEST_ORDER_TIMESTAMP_FIELD)), col(ID_FIELD)))).as(ORDERS_COUNT_QUARTER1),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER3_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER2_LOWER_BOUND)), col(ID_FIELD)))).as(ORDERS_COUNT_QUARTER2),
+                        countDistinct(when(timestampColumn.lt(col(QUARTER4_LOWER_BOUND)), when(timestampColumn.$greater$eq(col(QUARTER3_LOWER_BOUND)), col(ID_FIELD)))).as(ORDERS_COUNT_QUARTER3),
+                        countDistinct(when(timestampColumn.$less$eq(col(JOB_DATE_FIELD)), when(timestampColumn.$greater$eq(col(QUARTER4_LOWER_BOUND)), col(ID_FIELD)))).as(ORDERS_COUNT_QUARTER4),
                         first(col(OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT), true).as(OLDEST_ORDER_TIMESTAMP_FIELD_W_CUT),
                         first(col(OLDEST_ORDER_TIMESTAMP_FIELD), true).as(OLDEST_ORDER_TIMESTAMP_FIELD),
                         first(col(JOB_DATE_FIELD), true).as(JOB_DATE_FIELD),
@@ -279,11 +253,11 @@ public class DataProcessingJob {
         // data for all weeks
         Dataset<Row> weekData = ordersDataSet.groupBy(WEEK_DATE_FIELD)
                 .agg(
-                        countDistinct(col(ORDER_ID)).alias(ORDER_NUMBER_FIELD),
+                        countDistinct(col(ID_FIELD)).alias(ORDER_NUMBER_FIELD),
                         countDistinct(ID_FIELD).alias(CUSTOMER_NUMBER_FIELD),
                         sum(col(ORDER_LINE_ITEM_QTY)).alias(ITEMS_NUMBER_FIELD),
                         sum(TOTAL_VALUE_FIELD).alias(TOTAL_VALUE_FIELD),
-                        countDistinct(col(PRODUCT_EXTERNAL_ID)).alias(DIFF_PRODUCTS_NUMBER_FIELD)
+                        countDistinct(col(PRODUCT_ID_FIELD)).alias(DIFF_PRODUCTS_NUMBER_FIELD)
                 );
         // handling the case when there were no sales in some week, and it disappears from the weekData
         List<Row> weekDataList = weekData.collectAsList();

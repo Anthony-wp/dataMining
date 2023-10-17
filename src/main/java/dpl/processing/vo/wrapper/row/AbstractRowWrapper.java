@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.StructField;
 
 import java.sql.Date;
@@ -66,6 +67,11 @@ public abstract class AbstractRowWrapper<S> implements RowWrapper<S> {
     @Override
     public Double getDouble(S field, Double defaultValue) {
         return getAs(field, DataTypes.DoubleType, row::getDouble, defaultValue);
+    }
+
+    @Override
+    public Number getDecimal(S field, Double defaultValue) {
+        return getAs(field, DecimalType.apply(38, 2), row::getDecimal, defaultValue);
     }
 
     @Override

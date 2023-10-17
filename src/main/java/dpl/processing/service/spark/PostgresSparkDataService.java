@@ -125,11 +125,11 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         log.info("Count of the spark session {}", getSparkSessions().size());
 
         Dataset<Row> orderData = loadBaseTableForOrg(sparkSession, "order", context);
-        Dataset<Row> customerKeyExternalIds = table(sparkSession, buildTableName(context, loadUserData(sparkSession, context)))
-                .select(CUSTOMER_ID_FIELD, ID_FIELD);
+        Dataset<Row> userData = table(sparkSession, buildTableName(context, loadUserData(sparkSession, context)))
+                .select(ID_FIELD);
 
-        return orderData.join(customerKeyExternalIds, orderData.col(CUSTOMER_ID_FIELD)
-                .equalTo(customerKeyExternalIds.col(CUSTOMER_ID_FIELD)));
+        return orderData.join(userData, orderData.col(ORDER_CUSTOMER_ID_FIELD)
+                .equalTo(userData.col(ID_FIELD)));
     }
 
     @Override
