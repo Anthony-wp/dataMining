@@ -52,7 +52,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         return getSparkSession(sparkSession)
                 .read()
                 .format(getFormat())
-                .option("url", "jdbc:postgresql://172.30.0.2:5432/shop_data")
+                .option("url", "jdbc:postgresql://172.30.0.4:5432/shop_data")
                 .option("user", "postgres")
                 .option("password", "1qaz2wsXX")
                 .option("driver", "org.postgresql.Driver")
@@ -126,10 +126,10 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
 
         Dataset<Row> orderData = loadBaseTableForOrg(sparkSession, "order", context);
         Dataset<Row> userData = table(sparkSession, buildTableName(context, loadUserData(sparkSession, context)))
-                .select(ID_FIELD);
+                .select(USER_ID_FIELD);
 
         return orderData.join(userData, orderData.col(ORDER_CUSTOMER_ID_FIELD)
-                .equalTo(userData.col(ID_FIELD)));
+                .equalTo(userData.col(USER_ID_FIELD)));
     }
 
     @Override

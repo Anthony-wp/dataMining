@@ -18,8 +18,8 @@ import java.util.Date;
 @NoArgsConstructor
 public class Product {
     @Id
-    @Column(name = "id")
-    private String id;
+    @Column(name = "product_id")
+    private String product_id;
     @Column(name = "name")
     private String name;
     @Column(name = "url")

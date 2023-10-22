@@ -17,8 +17,8 @@ import java.util.Date;
 @NoArgsConstructor
 public class User {
     @Id
-    @Column(name = "id")
-    private String id;
+    @Column(name = "user_id")
+    private String user_id;
     @Column(name = "email")
     private String email;
     @Column(name = "first_name")

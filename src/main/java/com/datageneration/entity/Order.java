@@ -24,8 +24,8 @@ public class Order {
     private String orderId;
     @Column(name = "customer_id")
     private String customerId;
-    @Column(name = "product_id")
-    private String productId;
+    @Column(name = "product_ex_id")
+    private String productExId;
     @Column(name = "qty")
     private Long qty;
     @Column(name = "timestamp")

@@ -9,8 +9,6 @@ import com.datageneration.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
@@ -120,8 +118,8 @@ public class DataGenerationService {
                                 return new Order(
                                         UUID.randomUUID().toString(),
                                         orderId,
-                                        user.getId(),
-                                        product.getId(),
+                                        user.getUser_id(),
+                                        product.getProduct_id(),
                                         r.nextInt(maxQty) + 1L,
                                         timestamp,
                                         user.getEmail(),

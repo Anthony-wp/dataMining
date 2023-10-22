@@ -10,10 +10,12 @@ public class PostgresConstants {
 
     public static final String ID_FIELD = "id";
     public static final String ORDER_CUSTOMER_ID_FIELD = "customer_id";
+    public static final String USER_ID_FIELD = "user_id";
 
     public static final String ENGAGEMENT_GAP_SECONDS_FIELD = "browse_gap_seconds";
 
     public static final String PRODUCT_ID_FIELD = "product_id";
+    public static final String ORDER_PRODUCT_ID_FIELD = "product_ex_id";
     public static final String ORDER_ID_FIELD = "order_id";
     public static final String ORDER_CUSTOMER_EMAIL_ADDRESS = "customer_email_address";
     public static final String ORDER_TIMESTAMP = "timestamp";
