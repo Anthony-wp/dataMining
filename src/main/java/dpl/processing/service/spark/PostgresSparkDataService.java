@@ -52,7 +52,7 @@ public class PostgresSparkDataService implements IPostgresSparkDataService {
         return getSparkSession(sparkSession)
                 .read()
                 .format(getFormat())
-                .option("url", "jdbc:postgresql://172.30.0.4:5432/shop_data")
+                .option("url", "jdbc:postgresql://172.30.0.3:5432/shop_data")
                 .option("user", "postgres")
                 .option("password", "1qaz2wsXX")
                 .option("driver", "org.postgresql.Driver")

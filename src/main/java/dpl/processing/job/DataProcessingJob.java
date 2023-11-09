@@ -5,13 +5,16 @@ import dpl.processing.job.context.ProcessJobContext;
 import dpl.processing.service.AggregatedDataService;
 import dpl.processing.service.spark.IPostgresSparkDataService;
 import dpl.processing.utils.ProductUtils;
+import dpl.processing.utils.ScalaUtils;
 import dpl.processing.vo.YearChartPoint;
 import dpl.processing.vo.holder.ForecastCalculationHolder;
 import dpl.processing.vo.holder.ProductDataHolder;
 import dpl.processing.vo.wrapper.row.EmptyRowWrapper;
 import dpl.processing.vo.wrapper.row.RowWrapper;
 import dpl.processing.vo.wrapper.row.SimpleRowWrapper;
+import edu.stanford.nlp.pipeline.StanfordCoreNLP;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
@@ -20,11 +23,18 @@ import org.apache.spark.sql.expressions.Window;
 import org.apache.spark.sql.expressions.WindowSpec;
 import org.apache.spark.sql.types.DataTypes;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import scala.collection.Seq;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -112,11 +122,37 @@ public class DataProcessingJob {
     private static final String ORDER_FREQUENCY_FIELD = "order_frequency";
     private static final String ORDER_AVERAGE_VALUE_FIELD = "order_average_value";
 
+    protected static final String REPEAT_COUNT_WEEK_BEFORE_LAST_FIELD = "repeat_count_week_before_last";
+    protected static final String REPEAT_COUNT_PERCENT_WEEK_BEFORE_LAST_FIELD = "repeat_count_percent_week_before_last";
+    protected static final String COUNT_CUSTOMERS_FIELD = "count_customers";
+    protected static final String REPEAT_COUNT_FIELD = "repeat_count";
+    protected static final String REPEAT_COUNT_PERCENT_FIELD = "repeat_count_percent";
+    protected static final String REPEAT_VALUE_WEEK_BEFORE_LAST_FIELD = "week_before_last_repeat_value";
+    protected static final String REPEAT_VALUE_FIELD = "repeat_value";
+    protected static final String TOTAL_ORDER_QTY_FIELD = "total_order_qty";
+    protected static final String TOTAL_ORDER_QTY_WEEK_BEFORE_LAST_FIELD = "week_before_last_total_order_qty";
+    protected static final String PRODUCT_NAME_ARR_FIELD = "product_name_arr";
+    protected static final String CHANGE_FIELD = "change";
+    protected static final String PRODUCT_POSITION_FIELD = "product_position";
+    protected static final String PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD = "week_before_last_product_position";
+    protected static final String TOTAL_VALUE_WEEK_BEFORE_LAST_FIELD = "week_before_last_total_value";
+    protected static final String FIRST_ORDER_VALUE_FIELD = "first_order_value";
+    protected static final String TOTAL_FIRST_ORDER_VALUE_FIELD = "total_first_order_value";
+
+
     protected static final String LEFT_JOIN = "left";
     protected static final Seq<String> USER_ID_TO_JOIN = toSeq(Collections.singletonList(USER_ID_FIELD));
     protected static final Seq<String> ORDER_CUSTOMER_ID_TO_JOIN = toSeq(Collections.singletonList(ORDER_CUSTOMER_ID_FIELD));
     public static final List<String> ORDER_PAID_STATUSES = Arrays.asList("PAID", "PARTIALLY_PAID", "PARTIALLY_REFUNDED");
+    protected static final Column ORDER_PRODUCT_JOIN_COLUMN = col(ORDER_PRODUCT_ID_FIELD)
+            .equalTo(col(PRODUCT_ID_FIELD));
 
+    protected static final Seq<String> PRODUCT_JOIN_COLUMN = ScalaUtils.toSeq(Collections.singletonList(
+            ORDER_PRODUCT_ID_FIELD));
+
+
+    @Value("classpath:stopwords")
+    private Resource stopWords;
 
     @Autowired
     protected IPostgresSparkDataService sparkDataService;
@@ -143,7 +179,7 @@ public class DataProcessingJob {
                         .and(upper(col(ORDER_PAYMENT_STATUS)).isin(ORDER_PAID_STATUSES.toArray())))
                 .withColumn(WEEK_DATE_FIELD, date_trunc("WEEK", col(ORDER_TIMESTAMP)))
                 .withColumn(TOTAL_VALUE_FIELD, coalesce(col(LINE_VALUE_INCLUDING_TAX), col(LINE_VALUE_EXCLUDING_TAX), lit(0))
-                                .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1))).cast(DataTypes.DoubleType)
+                        .multiply(coalesce(col(ORDER_LINE_ITEM_QTY), lit(1))).cast(DataTypes.DoubleType)
                 );
 
         if (log.isTraceEnabled()) {
@@ -152,7 +188,9 @@ public class DataProcessingJob {
 
         AggregatedData aggregatedData = startProcessingData(context, sessionName, jobDate, ordersDataSet);
 
-        dataService.saveData(aggregatedData);
+        ResultData resultData = new ResultData(new Date(), aggregatedData);
+
+        dataService.saveData(resultData);
     }
 
     private AggregatedData startProcessingData(ProcessJobContext context, String sparkSession, LocalDateTime jobDate, Dataset<Row> ordersDataSet) {
@@ -296,7 +334,6 @@ public class DataProcessingJob {
         List<QuarterData> quarterData = forecastCalculationHolder.getQuarterData();
 
 
-
         aggregatedData.setTotalSales(toBigDecimal(headerData.getDouble(TOTAL_VALUE_YEAR_FIELD, 0.0)));
         aggregatedData.setYesterdaySales(toBigDecimal(headerData.getDouble(YESTERDAY_TOTAL_VALUE_FIELD, 0.0)));
         aggregatedData.setYesterdayAverageOrderValue(toBigDecimal(headerData.getDouble(YESTERDAY_ANG_ORDER_VALUE_FIELD, 0.0)));
@@ -320,7 +357,7 @@ public class DataProcessingJob {
         aggregatedData.setYearForecast(forecastCalculationHolder.getYearForecast());
         aggregatedData.setLastYearAverageOrderValue(lastYearAverageOrderValue);
 
-        
+
         Dataset<Row> customerStatsDataset = createCustomerStatsDataset(jobDate, ordersDataSet)
                 .withColumn(SPENT_RANK_FIELD, percent_rank().over(Window.orderBy(CUSTOMER_TOTAL_VALUE_FIELD)))
                 .cache();
@@ -374,6 +411,204 @@ public class DataProcessingJob {
         aggregatedData.setHighValueSegmentData(highValueSegmentData);
         aggregatedData.setAverageValueSegmentData(averageValueSegmentData);
         aggregatedData.setLowValueSegmentData(lowValueSegmentData);
+
+        // movers and shakers
+        WindowSpec windowSpecTheWeekBeforeLast = Window.orderBy(col(TOTAL_ORDER_QTY_WEEK_BEFORE_LAST_FIELD).desc(), col(TOTAL_VALUE_WEEK_BEFORE_LAST_FIELD).desc());
+
+        Dataset<Row> ordersTheWeekBeforeLast = ordersDataSet
+                .filter(timestampColumn.between(Timestamp.valueOf(jobDate.minusDays(14)), Timestamp.valueOf(jobDate.minusDays(7))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN, "left")
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        sum(col(TOTAL_VALUE_FIELD)).as(TOTAL_VALUE_WEEK_BEFORE_LAST_FIELD),
+                        sum(col(ORDER_LINE_ITEM_QTY)).as(TOTAL_ORDER_QTY_WEEK_BEFORE_LAST_FIELD)
+                ).withColumn(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD, row_number().over(windowSpecTheWeekBeforeLast));
+
+        WindowSpec windowSpecLastWeek = Window.orderBy(col(TOTAL_ORDER_QTY_FIELD).desc(), col(TOTAL_VALUE_FIELD).desc());
+
+        Dataset<Row> ordersLastWeek = ordersDataSet
+                .filter(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusDays(7))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN, "left")
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        first(col(PRODUCT_NAME), true).as(PRODUCT_NAME),
+                        sum(col(TOTAL_VALUE_FIELD)).as(TOTAL_VALUE_FIELD),
+                        sum(col(ORDER_LINE_ITEM_QTY)).as(TOTAL_ORDER_QTY_FIELD)
+                ).withColumn(PRODUCT_NAME_ARR_FIELD, split(col(PRODUCT_NAME), " "))
+                .withColumn(PRODUCT_POSITION_FIELD, row_number().over(windowSpecLastWeek));
+
+        Dataset<Row> top10LastWeek = ordersLastWeek
+                .sort(col(TOTAL_ORDER_QTY_FIELD).desc(), col(TOTAL_VALUE_FIELD).desc())
+                .limit(10);
+
+        Dataset<Row> moversAndShakersTop10 = top10LastWeek
+                .join(ordersTheWeekBeforeLast, PRODUCT_JOIN_COLUMN, "left")
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        first(col(PRODUCT_NAME), true).as(PRODUCT_NAME),
+                        first(col(TOTAL_VALUE_FIELD), true).as(TOTAL_VALUE_FIELD),
+                        first(col(TOTAL_ORDER_QTY_FIELD), true).as(TOTAL_ORDER_QTY_FIELD),
+                        first(col(PRODUCT_POSITION_FIELD), true).as(PRODUCT_POSITION_FIELD),
+                        first(col(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD), true).as(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD)
+                ).withColumn(CHANGE_FIELD, col(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD).minus(col(PRODUCT_POSITION_FIELD)))
+                .sort(col(TOTAL_ORDER_QTY_FIELD).desc(), col(TOTAL_VALUE_FIELD).desc());
+
+        Dataset<Row> otherProducts = ordersLastWeek
+                .except(top10LastWeek)
+                .agg(
+                        sum(col(TOTAL_ORDER_QTY_FIELD)).as(TOTAL_ORDER_QTY_FIELD),
+                        sum(col(TOTAL_VALUE_FIELD)).as(TOTAL_VALUE_FIELD)
+                ).withColumn(PRODUCT_NAME, lit("Other"));
+
+        // customer subscription opportunities
+        WindowSpec windowSpecTheWeekBeforeLastSubscriptionOpportunities = Window.orderBy(col(REPEAT_COUNT_PERCENT_WEEK_BEFORE_LAST_FIELD).desc(),
+                col(REPEAT_VALUE_WEEK_BEFORE_LAST_FIELD).desc());
+
+        Dataset<Row> productsTotalFirstValueWeekBeforeLast = ordersDataSet
+                .filter(timestampColumn.between(Timestamp.valueOf(jobDate.minusMonths(3).minusWeeks(1)),
+                        Timestamp.valueOf(jobDate.minusWeeks(1))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN, LEFT_JOIN)
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD), col(ORDER_CUSTOMER_ID_FIELD))
+                .agg(
+                        first(col(TOTAL_VALUE_FIELD)).as(FIRST_ORDER_VALUE_FIELD)
+                ).groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(sum(col(FIRST_ORDER_VALUE_FIELD)).as(TOTAL_FIRST_ORDER_VALUE_FIELD));
+
+        Dataset<Row> subscriptionOrderTheWeekBeforeLast = ordersDataSet
+                .filter(timestampColumn.between(Timestamp.valueOf(jobDate.minusMonths(3).minusWeeks(1)),
+                        Timestamp.valueOf(jobDate.minusWeeks(1))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN, LEFT_JOIN)
+                .join(productsTotalFirstValueWeekBeforeLast, PRODUCT_JOIN_COLUMN, LEFT_JOIN)
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        sum(col(TOTAL_VALUE_FIELD)).as(TOTAL_VALUE_FIELD),
+                        countDistinct(col(ORDER_CUSTOMER_ID_FIELD)).as(COUNT_CUSTOMERS_FIELD),
+                        countDistinct(col(ORDER_ID_FIELD)).as(ORDER_NUMBER_FIELD),
+                        first(col(TOTAL_FIRST_ORDER_VALUE_FIELD)).as(TOTAL_FIRST_ORDER_VALUE_FIELD)
+                ).withColumn(REPEAT_COUNT_WEEK_BEFORE_LAST_FIELD, col(ORDER_NUMBER_FIELD).minus(col(COUNT_CUSTOMERS_FIELD)))
+                .withColumn(REPEAT_VALUE_WEEK_BEFORE_LAST_FIELD, col(TOTAL_VALUE_FIELD).minus(col(TOTAL_FIRST_ORDER_VALUE_FIELD)))
+                .withColumn(REPEAT_COUNT_PERCENT_WEEK_BEFORE_LAST_FIELD, col(REPEAT_COUNT_WEEK_BEFORE_LAST_FIELD).multiply(lit(100D).divide(col(ORDER_NUMBER_FIELD))))
+                .withColumn(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD, row_number().over(windowSpecTheWeekBeforeLastSubscriptionOpportunities));
+
+        WindowSpec windowSpecLastWeekSubscriptionOpportunities = Window.orderBy(col(REPEAT_COUNT_PERCENT_FIELD).desc(), col(REPEAT_VALUE_FIELD).desc());
+
+        Dataset<Row> productsTotalFirstValueLastWeek = ordersDataSet
+                .filter(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusMonths(3))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN, LEFT_JOIN)
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD), col(ORDER_CUSTOMER_ID_FIELD))
+                .agg(
+                        first(col(TOTAL_VALUE_FIELD)).as(FIRST_ORDER_VALUE_FIELD)
+                ).groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(sum(col(FIRST_ORDER_VALUE_FIELD)).as(TOTAL_FIRST_ORDER_VALUE_FIELD));
+
+        Dataset<Row> subscriptionOrderLastWeek = ordersDataSet
+                .filter(timestampColumn.$greater$eq(Timestamp.valueOf(jobDate.minusMonths(3))))
+                .join(productsDataset, ORDER_PRODUCT_JOIN_COLUMN)
+                .join(productsTotalFirstValueLastWeek, PRODUCT_JOIN_COLUMN, LEFT_JOIN)
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        first(col(PRODUCT_NAME), true).as(PRODUCT_NAME),
+                        countDistinct(col(ORDER_CUSTOMER_ID_FIELD)).as(COUNT_CUSTOMERS_FIELD),
+                        countDistinct(col(ORDER_ID_FIELD)).as(ORDER_NUMBER_FIELD),
+                        sum(col(TOTAL_VALUE_FIELD)).as(REPEAT_VALUE_FIELD),
+                        first(col(TOTAL_FIRST_ORDER_VALUE_FIELD)).as(TOTAL_FIRST_ORDER_VALUE_FIELD)
+                ).withColumn(REPEAT_COUNT_FIELD, col(ORDER_NUMBER_FIELD).minus(col(COUNT_CUSTOMERS_FIELD)))
+                .withColumn(REPEAT_VALUE_FIELD, col(REPEAT_VALUE_FIELD).minus(col(TOTAL_FIRST_ORDER_VALUE_FIELD)))
+                .withColumn(REPEAT_COUNT_PERCENT_FIELD, col(REPEAT_COUNT_FIELD).multiply(lit(100D).divide(col(ORDER_NUMBER_FIELD))))
+                .withColumn(PRODUCT_POSITION_FIELD, row_number().over(windowSpecLastWeekSubscriptionOpportunities));
+
+
+        Dataset<Row> top10LastWeekSubscriptionOpportunities = subscriptionOrderLastWeek.limit(10);
+
+        Dataset<Row> resultSubscriptionDataSet = top10LastWeekSubscriptionOpportunities
+                .join(subscriptionOrderTheWeekBeforeLast, PRODUCT_JOIN_COLUMN, "left")
+                .groupBy(col(ORDER_PRODUCT_ID_FIELD))
+                .agg(
+                        first(col(PRODUCT_NAME), true).as(PRODUCT_NAME),
+                        first(col(REPEAT_COUNT_WEEK_BEFORE_LAST_FIELD), true)
+                                .alias(REPEAT_COUNT_WEEK_BEFORE_LAST_FIELD),
+                        first(col(PRODUCT_POSITION_FIELD), true).as(PRODUCT_POSITION_FIELD),
+                        first(col(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD), true).as(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD),
+                        first(col(REPEAT_COUNT_PERCENT_FIELD), true).as(REPEAT_COUNT_PERCENT_FIELD),
+                        first(col(REPEAT_VALUE_FIELD), true).as(REPEAT_VALUE_FIELD)
+                ).withColumn(CHANGE_FIELD, col(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD).minus(col(PRODUCT_POSITION_FIELD)))
+                .sort(col(REPEAT_COUNT_PERCENT_FIELD).desc(), col(REPEAT_VALUE_FIELD).desc());
+
+        // word cloud
+        Map<String, Double> wordCloudWeights = new HashMap<>();
+
+        StanfordCoreNLP pipeline = getPipeline();
+
+        List<Row> orderLastWeekList = ordersLastWeek.collectAsList();
+
+        if (!orderLastWeekList.isEmpty()) {
+            orderLastWeekList
+                    .stream()
+                    .map(SimpleRowWrapper::new)
+                    .forEach(s -> {
+                        Double weight = s.getDouble(TOTAL_VALUE_FIELD);
+                        s.getList(PRODUCT_NAME_ARR_FIELD, String.class, Collections.emptyList())
+                                .stream()
+                                .filter(word -> pipeline.processToCoreDocument(word).tokens().size() > 0)
+                                .map(this::prepareWord)
+                                .filter(this::isFullWord)
+                                .forEach(word ->
+                                        wordCloudWeights.compute(pipeline.processToCoreDocument(word)
+                                                .tokens().get(0).lemma(), (k, v) -> Optional.ofNullable(v).orElse(0D) + weight));
+                    });
+        }
+
+        List<String> stopWordsList = getStopWords();
+
+        List<WordWithValue> words = wordCloudWeights.entrySet()
+                .stream()
+                .filter(e -> !stopWordsList.contains(e.getKey()))
+                .map(e -> new WordWithValue(e.getKey(), round(BigDecimal.valueOf(e.getValue()))))
+                .collect(Collectors.toList());
+
+        // building climbers and shakers
+        ProductSoldInfo topClimber = new ProductSoldInfo();
+        ProductSoldInfo topFaller = new ProductSoldInfo();
+
+        if (!moversAndShakersTop10.collectAsList().isEmpty()) {
+            topClimber = buildMoversAndShakersProducts(new SimpleRowWrapper(moversAndShakersTop10
+                    .sort(col(CHANGE_FIELD).desc(), col(TOTAL_VALUE_FIELD).desc()).collectAsList().get(0)));
+
+            topFaller = buildMoversAndShakersProducts(new SimpleRowWrapper(moversAndShakersTop10
+                    .sort(col(CHANGE_FIELD).asc_nulls_last(), col(TOTAL_VALUE_FIELD)).collectAsList().get(0)));
+        }
+
+        List<ProductSoldInfo> moversAndShakers = moversAndShakersTop10.collectAsList()
+                .stream()
+                .map(SimpleRowWrapper::new)
+                .map(this::buildMoversAndShakersProducts)
+                .collect(Collectors.toList());
+
+        moversAndShakers.add(buildMoversAndShakersProducts(new SimpleRowWrapper(otherProducts.collectAsList().get(0))));
+        moversAndShakers.add(
+                moversAndShakers.stream().reduce(new ProductSoldInfo("Total", BigDecimal.ZERO, BigDecimal.valueOf(0L), 0, 0),
+                        (p1, p2) -> new ProductSoldInfo(
+                                p1.getName(),
+                                p1.getTotalValue().add(p2.getTotalValue()),
+                                p1.getLastWeekValue().add(p2.getLastWeekValue()),
+                                p1.getWeekBeforeLastPosition() + p2.getWeekBeforeLastPosition(),
+                                p1.getLastWeekPosition() + p2.getLastWeekPosition()
+                        )
+                )
+        );
+
+        List<ProductSoldInfo> subscriptionOpportunities = resultSubscriptionDataSet.collectAsList()
+                .stream()
+                .map(SimpleRowWrapper::new)
+                .map(this::buildSubscriptionOpportunitiesProducts)
+                .collect(Collectors.toList());
+
+        aggregatedData.setWordCloud(new WordCloud(words));
+        aggregatedData.setDifferentProductsSold(ordersLastWeek.count());
+        aggregatedData.setTopClimber(topClimber);
+        aggregatedData.setTopFaller(topFaller);
+        aggregatedData.setMoversAndShakers(moversAndShakers);
+        aggregatedData.setSubscriptionOpportunities(subscriptionOpportunities);
 
         return aggregatedData;
     }
@@ -440,7 +675,7 @@ public class DataProcessingJob {
 
     private SegmentData aggregateSegmentData(Dataset<Row> ordersDataSet,
                                              Dataset<Row> productsDataset, Dataset<Row> segmentData,
-                                             LocalDateTime currentDay, SimpleRowWrapper additionalCustomersInfo,
+                                             LocalDateTime jobDate, SimpleRowWrapper additionalCustomersInfo,
                                              SegmentType segmentType) {
         log.trace("{} job: Aggregating data for {} Segment", getJobName(), segmentType);
         Dataset<Row> filteredSegment = segmentData
@@ -490,8 +725,8 @@ public class DataProcessingJob {
                 );
 
         // segment history
-        List<ChartPoint> segmentChartDataHistory = getSegmentChartDataHistory(ordersDataSet, currentDay, segmentType, segmentData);
-        ChartPoint currentPoint = new ChartPoint(asDate(currentDay), BigDecimal.valueOf(filteredSegment.count()));
+        List<ChartPoint> segmentChartDataHistory = getSegmentChartDataHistory(ordersDataSet, jobDate, segmentType, segmentData);
+        ChartPoint currentPoint = new ChartPoint(asDate(jobDate), BigDecimal.valueOf(filteredSegment.count()));
         segmentChartDataHistory.add(currentPoint);
         segmentChartDataHistory.sort(Comparator.comparing(ChartPoint::getDate));
 
@@ -519,11 +754,11 @@ public class DataProcessingJob {
                 .build();
     }
 
-    private List<ChartPoint> getSegmentChartDataHistory(Dataset<Row> ordersDataSet, LocalDateTime currentDay,
+    private List<ChartPoint> getSegmentChartDataHistory(Dataset<Row> ordersDataSet, LocalDateTime jobDate,
                                                         SegmentType segmentType, Dataset<Row> segmentData) {
 
         return LongStream.range(1, 10)
-                .mapToObj(currentDay::minusWeeks)
+                .mapToObj(jobDate::minusWeeks)
                 .map(day -> new ChartPoint(
                         asDate(day),
                         BigDecimal.valueOf(ordersDataSet.where(col(ORDER_TIMESTAMP).lt(Timestamp.valueOf(day)))
@@ -583,6 +818,68 @@ public class DataProcessingJob {
                 .withColumn(ITEMS_NUMBER_FIELD, coalesce(col(ITEMS_NUMBER_FIELD), lit(0L)))
                 .withColumn(TOTAL_VALUE_FIELD, coalesce(col(TOTAL_VALUE_FIELD), lit(0D)))
                 .withColumn(DIFF_PRODUCTS_NUMBER_FIELD, coalesce(col(DIFF_PRODUCTS_NUMBER_FIELD), lit(0L)));
+    }
+
+    /**
+     * Remove all non-letter characters and do lowercase.
+     *
+     * @param s src string.
+     * @return processed string.
+     */
+    protected String prepareWord(String s) {
+        if (s != null) {
+            return s.replaceAll("[^\\p{L}]", "").toLowerCase();
+        }
+        return null;
+    }
+
+    /**
+     * Check that word isn't a number, or only one letter/symbol.
+     *
+     * @param word word to check.
+     * @return true if word is correct, false if word is a number or only one symbol.
+     */
+    protected boolean isFullWord(String word) {
+        if (word == null || word.length() <= 3) {
+            return false;
+        }
+        return !StringUtils.isNumeric(word);
+    }
+
+    private StanfordCoreNLP getPipeline() {
+        Properties props = new Properties();
+        props.setProperty("annotators", "tokenize,ssplit,pos,lemma");
+        return new StanfordCoreNLP(props);
+    }
+
+    private List<String> getStopWords() {
+        try (InputStream resource = stopWords.getInputStream()) {
+            return new BufferedReader(new InputStreamReader(resource, StandardCharsets.UTF_8))
+                    .lines().collect(Collectors.toList());
+        } catch (IOException e) {
+            log.error("Can't read stop words file!", e);
+            return Collections.emptyList();
+        }
+    }
+
+    private ProductSoldInfo buildMoversAndShakersProducts(SimpleRowWrapper productWrapper) {
+        return new ProductSoldInfo(
+                productWrapper.getString(PRODUCT_NAME, "Unknown"),
+                round(BigDecimal.valueOf(productWrapper.getDouble(TOTAL_VALUE_FIELD, 0D))),
+                toBigDecimal(productWrapper.getLong(TOTAL_ORDER_QTY_FIELD, 0L)),
+                productWrapper.getInt(PRODUCT_POSITION_FIELD, 0),
+                productWrapper.getInt(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD, 0)
+        );
+    }
+
+    private ProductSoldInfo buildSubscriptionOpportunitiesProducts(SimpleRowWrapper productWrapper) {
+        return new ProductSoldInfo(
+                productWrapper.getString(PRODUCT_NAME, "Unknown"),
+                round(BigDecimal.valueOf(productWrapper.getDouble(REPEAT_VALUE_FIELD, 0D))),
+                toBigDecimal(productWrapper.getDouble(REPEAT_COUNT_PERCENT_FIELD, 0D)),
+                productWrapper.getInt(PRODUCT_POSITION_FIELD, 0),
+                productWrapper.getInt(PRODUCT_POSITION_IN_WEEK_BEFORE_LAST_FIELD, 0)
+        );
     }
 
     private String getJobName() {

@@ -1,35 +1,20 @@
 package dpl.processing.model;
 
-import com.fasterxml.jackson.annotation.JsonManagedReference;
 import lombok.*;
 
 import javax.persistence.*;
+import java.io.Serializable;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
+
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 
-@Entity
-@Inheritance
-@Table(schema = "testshop", name = "aggregated_data")
 @Builder
-public class AggregatedData {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id", updatable = false, nullable = false)
-    private Long id;
-
-    @Column(name = "created_date")
-    private Date createdDate;
-
-    protected AggregatedData(Long id, Date createdDate, Date cardDate) {
-        this.id = id;
-        this.createdDate = createdDate;
-    }
+public class AggregatedData implements Serializable {
 
     @Getter
     private BigDecimal totalSales;
@@ -108,6 +93,24 @@ public class AggregatedData {
 
     private SegmentData lowValueSegmentData;
 
+    private WordCloud wordCloud;
+
+    private Long differentProductsSold;
+
+    private ProductSoldInfo topClimber;
+
+    private ProductSoldInfo topFaller;
+
+    private List<ProductSoldInfo> moversAndShakers;
+
+    private List<ProductSoldInfo> subscriptionOpportunities;
+
+    private Long indentCustomerCount;
+
+    private Long allCustomersCount;
+
+    private List<CustomerIndentProfileInfo> customerIndentProfile;
+
     public Long getLastWeekReturningCustomers() {
         if (lastWeekCustomers == null || lastWeekNewCustomers == null) {
             return null;
@@ -158,5 +161,21 @@ public class AggregatedData {
 
         return BigDecimal.valueOf(loyalRiskOfLeavingCustomers * 100.0 / riskOfLeavingCustomers)
                 .setScale(0, RoundingMode.HALF_UP);
+    }
+    public BigDecimal getIndentCustomersPercent() {
+        if (allCustomersCount == null || indentCustomerCount == 0 || allCustomersCount == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        return BigDecimal.valueOf(indentCustomerCount * 100.0).divide(BigDecimal.valueOf(allCustomersCount), BigDecimal.ROUND_HALF_UP);
+    }
+
+    public BigDecimal getSubscriptionOpportunitiesTotal() {
+        if(subscriptionOpportunities == null || subscriptionOpportunities.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return subscriptionOpportunities.stream()
+                .map(ProductSoldInfo::getTotalValue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }
